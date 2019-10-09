@@ -322,6 +322,15 @@ public:
 	ChargeStateWaiting                = 4,
 	ChargeStateFault                  = 5,
     } ChargeState;
+
+    /// \enum ChargeState
+    /// Values for sensor packet ID 21
+    typedef enum
+    {
+	ChargeNotAvailable            = 0,
+	ChargeAvailableCord           = 1,
+	ChargeAvailableDock           = 2,
+    } ChargeAvailable;
   
     /// \enum Mode
     /// Values for sensor packet ID 35
