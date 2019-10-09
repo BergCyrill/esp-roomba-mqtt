@@ -585,7 +585,7 @@ void loop() {
     lastWakeupTime = now;
     if (!roombaState.cleaning) {
       if (roombaState.docked) {
-        //wakeOnDock(); - CB - not neccessary
+        //wakeOnDock(); - CB
       } else {
         wakeOffDock();
         wakeup();
