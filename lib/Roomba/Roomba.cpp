@@ -237,6 +237,19 @@ void Roomba::waitEvent(EventType type)
   _serial->write(type);
 }
 
+// Display up to four digits on the Roomba display - please see class definition
+void Roomba::writeLEDdigits(char digit1, char digit2, char digit3, char digit4)
+{
+  _serial->write(164);
+  _serial->write(Roomba::LEDDigit(digit1));
+  _serial->write(Roomba::LEDDigit(digit2));
+  _serial->write(Roomba::LEDDigit(digit3));
+  _serial->write(Roomba::LEDDigit(digit4));
+  _serial->write(0); //trailing zero for command completion
+}
+
+
+
 // Reads at most len bytes and stores them to dest
 // If successful, returns true.
 // If there is a timeout, returns false

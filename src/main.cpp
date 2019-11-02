@@ -209,7 +209,7 @@ bool performCommand(const char *cmdchar) {
   }
   return true;
 }
-
+//MQTT callback for receiving submitted commands & messages
 void mqttCallback(char *topic, byte *payload, unsigned int length) {
   DLOG("Received mqtt callback for topic %s with payload %s\n", topic, payload);
   if (strcmp(commandTopic, topic) == 0) {
@@ -324,7 +324,7 @@ void sleepIfNecessary() {
   // According to this post, you want to stop using NiMH batteries at about 0.9V per cell
   // https://electronics.stackexchange.com/a/35879 For a 12 cell battery like is in the Roomba,
   // That's 10.8 volts.
-  if (roombaState.voltage < 10800 && roombaState.voltage > 0) {
+  if ((roombaState.voltage < 10800 && roombaState.voltage > 0) || ((int)(((float)roombaState.charge / (float)roombaState.capacity) * 100) < 25)) {
     // Fire off a quick message with our most recent state, if MQTT is connected
     DLOG("Battery voltage is low (%.1fV). Sleeping for 10 minutes\n", (float)roombaState.voltage / 1000);
     if (mqttClient.connected()) { 
@@ -332,6 +332,7 @@ void sleepIfNecessary() {
       JsonObject& root = jsonBuffer.createObject();
       root["warning"] = "low battery - sleep 10 minutes";
       root["voltage"] = roombaState.voltage;
+      root["batteryLevel"] = (int)(((float)roombaState.charge / (float)roombaState.capacity) * 100);
       String jsonStr;
       root.printTo(jsonStr);
       mqttClient.publish(statusTopic, jsonStr.c_str(), true);
@@ -534,9 +535,7 @@ void sendStatus() {
   DLOG("Reporting packet Distance:%dmm ChargingState:%d Voltage:%dmV Current:%dmA Charge:%dmAh Capacity:%dmAh\n", roombaState.distance, roombaState.chargingState, roombaState.voltage, roombaState.current, roombaState.charge, roombaState.capacity);
   StaticJsonBuffer<300> jsonBuffer;
   JsonObject& root = jsonBuffer.createObject();
-  //root["battery_level"] = (roombaState.charge * 100)/roombaState.capacity;
   root["cleaning"] = roombaState.cleaning;
-  //root["docked"] = roombaState.docked;
   root["docked"] = roombaState.chargingSourcesAvailable == Roomba::ChargeAvailableDock;
   root["charging"] = roombaState.chargingState == Roomba::ChargeStateReconditioningCharging
   || roombaState.chargingState == Roomba::ChargeStateFullCharging
@@ -610,14 +609,12 @@ void loop() {
     sprintf(uptime, "%dT%02d:%02d:%02d", updays, uphours, upminutes, upseconds);
     root["RSSI"] = WiFi.RSSI();
     root["SSID"] = WiFi.SSID();
-    //root["UPTIME"] = (millis()/1000);
     root["UPTIME"] = uptime;
     String jsonStr;
     root.printTo(jsonStr);
     mqttClient.publish(infoTopic, jsonStr.c_str());
     //roomba.stream(sensors, sizeof(sensors));
     //readSensorPacket();
-    //sendStatus();
   }
 
   // Report the status over mqtt at fixed intervals

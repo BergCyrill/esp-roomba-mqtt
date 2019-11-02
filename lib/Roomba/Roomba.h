@@ -390,6 +390,36 @@ public:
 	SensorRightVelocity            = 41,
 	SensorLeftVelocity             = 42,
     } Sensor;
+
+    typedef enum {
+        Space                   = 32,
+        A                       = 65,
+        B                       = 66,
+        C                       = 67,
+        D                       = 68,
+        E                       = 69,
+        F                       = 70,
+        G                       = 71,
+        H                       = 72,
+        I                       = 73,
+        J                       = 74,
+        K                       = 75,
+        L                       = 76,
+        M                       = 77,
+        N                       = 78,
+        O                       = 79,
+        P                       = 80,
+        Q                       = 81,
+        R                       = 82,
+        S                       = 83,
+        T                       = 84,
+        U                       = 85,
+        V                       = 86,
+        W                       = 87,
+        X                       = 88,
+        Y                       = 89,
+        Z                       = 90
+    }   LEDDigit;
   
     /// Constructor. You can have multiple simultaneous Roomba if that makes sense.
     /// \param[in] serial POinter to the HardwareSerial port to use to communicate with the Roomba. 
@@ -558,6 +588,13 @@ public:
     /// Create only. No equivalent on Roomba.
     /// \param[in] type Event type to wait for. One of Roomba::EventType
     void waitEvent(EventType type);
+
+    /// Controls the LEDdigits on the Roomba
+    /// \param[in] digit1 
+    /// \param[in] digit2
+    /// \param[in] digit3
+    /// \param[in] digit4
+    void writeLEDdigits(char digit1, char digit2, char digit3, char digit4);
 
     /// Low level funciton to read len bytes of data from the Roomba
     /// Blocks untill all len bytes are read or a read timeout occurs.
