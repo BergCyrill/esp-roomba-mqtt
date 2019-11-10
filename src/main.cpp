@@ -204,6 +204,9 @@ bool performCommand(const char *cmdchar) {
     char commandArray[(cmd.length() - 6)];
     cmd.substring(7).toCharArray(commandArray, (cmd.length() - 6));
     sendPacket(commandArray);
+  } else if (cmd == "sleep"){
+    DLOG("Received sleep command, will sleep 10 seconds\n");
+    //ESP.deepSleep(10000000); - disabled due to not connected GPIO16 to RST
   } else {
     return false;
   }
@@ -315,32 +318,6 @@ void debugCallback() {
     roomba.stream({}, 0);
   } else {
     DLOG("Unknown command %s\n", cmd.c_str());
-  }
-}
-
-void sleepIfNecessary() {
-  // Check the battery, if it's too low, sleep the ESP (so we don't murder the battery)
-  //float mV = readADC(10);
-  // According to this post, you want to stop using NiMH batteries at about 0.9V per cell
-  // https://electronics.stackexchange.com/a/35879 For a 12 cell battery like is in the Roomba,
-  // That's 10.8 volts.
-  if ((roombaState.voltage < 10800 && roombaState.voltage > 0) || ((int)(((float)roombaState.charge / (float)roombaState.capacity) * 100) < 25)) {
-    // Fire off a quick message with our most recent state, if MQTT is connected
-    DLOG("Battery voltage is low (%.1fV). Sleeping for 10 minutes\n", (float)roombaState.voltage / 1000);
-    if (mqttClient.connected()) { 
-      StaticJsonBuffer<200> jsonBuffer;
-      JsonObject& root = jsonBuffer.createObject();
-      root["warning"] = "low battery - sleep 10 minutes";
-      root["voltage"] = roombaState.voltage;
-      root["batteryLevel"] = (int)(((float)roombaState.charge / (float)roombaState.capacity) * 100);
-      String jsonStr;
-      root.printTo(jsonStr);
-      mqttClient.publish(statusTopic, jsonStr.c_str(), true);
-    }
-    delay(200);
-
-    // Sleep for 10 minutes
-    ESP.deepSleep(600e6);
   }
 }
 
@@ -553,6 +530,39 @@ void sendStatus() {
   String jsonStr;
   root.printTo(jsonStr);
   mqttClient.publish(statusTopic, jsonStr.c_str());
+}
+
+void sleepIfNecessary() {
+  // Check the battery, if it's too low, sleep the ESP (so we don't murder the battery)
+  //float mV = readADC(10);
+  // According to this post, you want to stop using NiMH batteries at about 0.9V per cell
+  // https://electronics.stackexchange.com/a/35879 For a 12 cell battery like is in the Roomba,
+  // That's 10.8 volts.
+  if ((roombaState.voltage < 10800 && roombaState.voltage > 0) || ((int)(((float)roombaState.charge / (float)roombaState.capacity) * 100) < 15)) {
+    // Fire off a quick message with our most recent state, if MQTT is connected
+    DLOG("Battery voltage is low (%.1fV). Sleeping for 10 minutes\n", (float)roombaState.voltage / 1000);
+    if (roombaState.cleaning == true){
+      roomba.cover();
+    }
+    if (mqttClient.connected()) { 
+      sendStatus();
+      StaticJsonBuffer<200> jsonBuffer;
+      JsonObject& root = jsonBuffer.createObject();
+      //root["warning"] = "low battery - sleep 10 minutes";
+      root["warning"] = "low battery - disabled cleaning";
+      root["voltage"] = roombaState.voltage;
+      root["batteryLevel"] = (int)(((float)roombaState.charge / (float)roombaState.capacity) * 100);
+      String jsonStr;
+      root.printTo(jsonStr);
+      mqttClient.publish(statusTopic, jsonStr.c_str(), true);
+      delay(200);
+      //ESP.deepSleep(600e6); - disabled due to not connected GPIO16 to RST
+    }
+    //delay(200);
+
+    // Sleep for 10 minutes - moved to mqtt section to force warning message
+    //ESP.deepSleep(600e6); - disabled due to not connected GPIO16 to RST
+  }
 }
 
 int lastStateMsgTime = 0;
