@@ -71,6 +71,7 @@ bool OTAStarted;
 PubSubClient mqttClient(wifiClient);
 const PROGMEM char *commandTopic = MQTT_COMMAND_TOPIC;
 const PROGMEM char *statusTopic = MQTT_STATE_TOPIC;
+const PROGMEM char *statusHATopic = MQTT_STATE_HA_TOPIC;
 const PROGMEM char *infoTopic = MQTT_INFO_TOPIC;
 const PROGMEM char *lwtTopic = MQTT_LWT_TOPIC;
 const PROGMEM char *lwtMessage = "ONLINE";
@@ -191,7 +192,7 @@ bool performCommand(const char *cmdchar) {
     roomba.spot();
   } else if (cmd == "locate") {
     DLOG("Locating\n");
-    // TODO
+    // TODO - Add playing sound
   } else if (cmd == "return_to_base") {
     DLOG("Returning to Base\n");
     roombaState.cleaning = true;
@@ -484,7 +485,7 @@ void reconnect() {
   DLOG("Attempting MQTT connection...\n");
   // Attempt to connect
   //if (mqttClient.connect(HOSTNAME, MQTT_USER, MQTT_PASSWORD)) {
-    if (mqttClient.connect(HOSTNAME,lwtTopic,0,false,lwtMessage)) {
+    if (mqttClient.connect(HOSTNAME,lwtTopic,0,true,lwtMessage)) {
     DLOG("MQTT connected\n");
     mqttClient.subscribe(commandTopic);
     DLOG("MQTT command topic subscribed!\n");
@@ -532,6 +533,28 @@ void sendStatus() {
   mqttClient.publish(statusTopic, jsonStr.c_str());
 }
 
+void sendStatusHA() {
+  if (!mqttClient.connected()) {
+    DLOG("MQTT Disconnected, not sending status\n");
+    return;
+  }
+  StaticJsonBuffer<300> jsonBuffer;
+  JsonObject& root = jsonBuffer.createObject();
+  if (roombaState.cleaning){
+    root["state"] = "cleaning";
+  }
+  else if (roombaState.chargingSourcesAvailable == Roomba::ChargeAvailableDock){
+    root["state"] = "docked";
+  }
+  else {
+    root["state"] = "error";
+  }
+  root["battery_level"] = (int)(((float)roombaState.charge / (float)roombaState.capacity) * 100);
+  String jsonStr;
+  root.printTo(jsonStr);
+  mqttClient.publish(statusHATopic, jsonStr.c_str(), true);
+}
+
 void sleepIfNecessary() {
   // Check the battery, if it's too low, sleep the ESP (so we don't murder the battery)
   //float mV = readADC(10);
@@ -546,6 +569,7 @@ void sleepIfNecessary() {
     }
     if (mqttClient.connected()) { 
       sendStatus();
+      sendStatusHA();
       StaticJsonBuffer<200> jsonBuffer;
       JsonObject& root = jsonBuffer.createObject();
       //root["warning"] = "low battery - sleep 10 minutes";
@@ -638,6 +662,7 @@ void loop() {
     } else {
       DLOG("send roomba status\n");
       sendStatus();
+      sendStatusHA();
       roombaState.sent = true;
     }
     sleepIfNecessary();
