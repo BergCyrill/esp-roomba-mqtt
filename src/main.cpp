@@ -192,7 +192,13 @@ bool performCommand(const char *cmdchar) {
     roomba.spot();
   } else if (cmd == "locate") {
     DLOG("Locating\n");
-    // TODO - Add playing sound
+    // Set Song Number 1 and play it directly - still a little buggy
+    char commandArray[39];
+    String s = "140 1 3 50 8 51 8 52 32 0 131 0 141 1";
+    s.toCharArray(commandArray, 39);
+    sendPacket(commandArray);
+    delay(750);
+    Serial.write(128); // Start command
   } else if (cmd == "return_to_base") {
     DLOG("Returning to Base\n");
     roombaState.cleaning = true;
@@ -208,6 +214,9 @@ bool performCommand(const char *cmdchar) {
   } else if (cmd == "sleep"){
     DLOG("Received sleep command, will sleep 10 seconds\n");
     //ESP.deepSleep(10000000); - disabled due to not connected GPIO16 to RST
+  } else if (cmd == "reboot"){
+    DLOG("Reboot ESP...");
+    ESP.restart();
   } else {
     return false;
   }
@@ -317,6 +326,9 @@ void debugCallback() {
   } else if (cmd == "streamreset") {
     DLOG("Resetting stream\n");
     roomba.stream({}, 0);
+  } else if (cmd == "esprestart") {
+    DLOG("Reboot ESP...");
+    ESP.restart();
   } else {
     DLOG("Unknown command %s\n", cmd.c_str());
   }
@@ -547,7 +559,7 @@ void sendStatusHA() {
     root["state"] = "docked";
   }
   else {
-    root["state"] = "error";
+    root["state"] = "idle"; // decided to go for state 'idle' since we cannot differ between standing around idling and having an error
   }
   root["battery_level"] = (int)(((float)roombaState.charge / (float)roombaState.capacity) * 100);
   String jsonStr;
@@ -606,13 +618,13 @@ void loop() {
   }
 
   long now = millis();
-  // If MQTT client can't connect to broker, then reconnect
+  // If MQTT client can't connect to broker, then reconnect every 30 seconds
   if (!mqttClient.connected() && (now - lastConnectTime) > 30000) {
     DLOG("Reconnecting MQTT\n");
     lastConnectTime = now;
     reconnect();
   }
-  // Wakeup the roomba at fixed intervals
+  // Wakeup the roomba at fixed intervals - every 50 seconds
   if (now - lastWakeupTime > 50000) {
     DLOG("Wakeup Roomba now\n");
     lastWakeupTime = now;
