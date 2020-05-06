@@ -77,6 +77,10 @@ const PROGMEM char *lwtTopic = MQTT_LWT_TOPIC;
 const PROGMEM char *lwtMessage = "ONLINE";
 const PROGMEM char *debugTopic = MQTT_DEBUG_TOPIC;
 
+// miscellanous
+char *serialMessage = "";
+int32_t distanceSum;
+
 void wakeup() {
   DLOG("Wakeup Roomba\n");
   pinMode(BRC_PIN,OUTPUT);
@@ -417,7 +421,8 @@ void verboseLogPacket(uint8_t *packet, uint8_t length) {
 
 void readSensorPacket() {
   uint8_t packetLength;
-  bool received = roomba.pollSensors(roombaPacket, sizeof(roombaPacket), &packetLength);
+  bool received = roomba.pollSensors(roombaPacket, sizeof(roombaPacket), &packetLength, serialMessage);
+  DLOG(serialMessage);
   if (received) {
     RoombaState rs = {};
     bool parsed = parseRoombaStateFromStreamPacket(roombaPacket, packetLength, &rs);
@@ -429,12 +434,18 @@ void readSensorPacket() {
       //char pkg[180];
       //sprintf(pkg, "Got Packet of len=%d! Distance:%dmm ChargingState:%d Voltage:%dmV Current:%dmA Charge:%dmAh Capacity:%dmAh\n", packetLength, roombaState.distance, roombaState.chargingState, roombaState.voltage, roombaState.current, roombaState.charge, roombaState.capacity);
       //mqttClient.publish(debugTopic,pkg);
-      roombaState.cleaning = false;
-      roombaState.docked = false;
+      distanceSum += roombaState.distance;
+      //roombaState.cleaning = false;
+      //roombaState.docked = false;
       if (roombaState.current < -400) {
         roombaState.cleaning = true;
+        roombaState.docked = false;
       } else if (roombaState.current > -50) {
         roombaState.docked = true;
+        roombaState.cleaning = false;
+      } else {
+        roombaState.cleaning = false;
+        roombaState.docked = false;
       }
     } else {
       VLOG("Failed to parse packet\n");
@@ -509,6 +520,7 @@ void reconnect() {
     root["IPAddress"] = wifiClient.localIP().toString();
     root["RSSI"] = WiFi.RSSI();
     root["SSID"] = WiFi.SSID();
+    root["COMPILE_DATE"] = __DATE__ " " __TIME__;
     String jsonStr;
     root.printTo(jsonStr);
     mqttClient.publish(infoTopic, jsonStr.c_str());
@@ -536,6 +548,7 @@ void sendStatus() {
   root["charge"] = roombaState.charge;
   root["capacity"] = roombaState.capacity;
   root["distance"] = roombaState.distance;
+  root["distanceSum"] = distanceSum;
   root["batteryLevel"] = (int)(((float)roombaState.charge / (float)roombaState.capacity) * 100);
   root["batteryTemperature"] = roombaState.temp;
   root["chargingSourcesAvailable"] = roombaState.chargingSourcesAvailable;
