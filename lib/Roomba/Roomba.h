@@ -389,6 +389,9 @@ public:
 	SensorRadius                   = 40,
 	SensorRightVelocity            = 41,
 	SensorLeftVelocity             = 42,
+    SensorLeftEncoderCounts        = 43,
+    SensorRightEncoderCounts       = 44,
+    SensorStasis                   = 58,
     } Sensor;
 
     typedef enum {
@@ -641,7 +644,7 @@ public:
     /// \param[in] len Max number of sensor data bytes to store to dest
     /// \return true when a complete stream has been read, and the checksum is correct. The sensor data
     /// (at most len bytes) will have been stored into dest, ready for the caller to decode.
-    bool pollSensors(uint8_t* dest, uint8_t destSize, uint8_t *packetLen, char *serialMessage);
+    bool pollSensors(uint8_t* dest, uint8_t destSize, uint8_t *packetLen);
 
     /// Reads a the contents of the script most recently specified by a call to script().
     /// Create only. No equivalent on Roomba.

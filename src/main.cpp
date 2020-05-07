@@ -39,9 +39,14 @@ typedef struct {
   uint8_t chargingSourcesAvailable;
   uint8_t OIMode;
 
+  int16_t leftencodercounts;
+  int16_t rightencodercounts;
+  uint8_t stasis;
+
   // Derived state
   bool cleaning;
   bool docked;
+  bool returning;
 
   int timestamp;
   bool sent;
@@ -60,7 +65,10 @@ uint8_t sensors[] = {
   Roomba::SensorBatteryCharge, // PID 25, 2 bytes, mAh, unsigned
   Roomba::SensorBatteryCapacity, // PID 26, 2 bytes, mAh, unsigned
   Roomba::SensorChargingSourcesAvailable, // PID 34, 1 byte, unsigned
-  Roomba::SensorOIMode // PID 35, 1 byte, unsigned
+  Roomba::SensorOIMode, // PID 35, 1 byte, unsigned
+  Roomba::SensorLeftEncoderCounts, // PID 43, 2 bytes, signed
+  Roomba::SensorRightEncoderCounts, // PID 44, 2 bytes, signed
+  Roomba::SensorStasis // PID 58, 1 byte, unsigned
 };
 
 // Network setup
@@ -78,8 +86,8 @@ const PROGMEM char *lwtMessage = "ONLINE";
 const PROGMEM char *debugTopic = MQTT_DEBUG_TOPIC;
 
 // miscellanous
-char *serialMessage = "";
 int32_t distanceSum;
+bool stop_wakeup = false;
 
 void wakeup() {
   DLOG("Wakeup Roomba\n");
@@ -162,30 +170,36 @@ bool performCommand(const char *cmdchar) {
     }
     else {
       DLOG("Start cleaning!\n");
-      roomba.cover();
       roombaState.cleaning = true;
+      roomba.cover();
     }
+    roombaState.returning = false;
   } else if (cmd == "turn_off") {
     DLOG("Turning off\n");
     roomba.power();
     roombaState.cleaning = false;
+    roombaState.returning = false;
   } else if (cmd == "toggle" || cmd == "start_pause") {
     DLOG("Toggling\n");
     if (roombaState.cleaning){
       DLOG("Stop cleaning ...\n");
       roomba.power();
       roombaState.cleaning = false;
+      roombaState.returning = false;
     }
     else {
       DLOG("Start cleaning ...\n");
       roomba.cover();
       roombaState.cleaning = true;
+      roombaState.returning = false;
     }
     
     roomba.cover();
   } else if (cmd == "stop") {
-    if (roombaState.cleaning) {
+    if (roombaState.cleaning || roombaState.returning) {
       DLOG("Stopping\n");
+      roombaState.cleaning = false;
+      roombaState.returning = false;
       roomba.cover();
     } else {
       DLOG("Not cleaning, can't stop\n");
@@ -193,19 +207,24 @@ bool performCommand(const char *cmdchar) {
   } else if (cmd == "clean_spot") {
     DLOG("Cleaning Spot\n");
     roombaState.cleaning = true;
+    roombaState.returning = false;
     roomba.spot();
   } else if (cmd == "locate") {
-    DLOG("Locating\n");
-    // Set Song Number 1 and play it directly - still a little buggy
-    char commandArray[39];
-    String s = "140 1 3 50 8 51 8 52 32 0 131 0 141 1";
-    s.toCharArray(commandArray, 39);
-    sendPacket(commandArray);
-    delay(750);
-    Serial.write(128); // Start command
+    if (roombaState.cleaning || roombaState.returning){
+      DLOG("Not locating - currently cleaning/returning\n");
+    } else {
+      DLOG("Locating\n");
+      // Set Song Number 1 and play it directly - still a little buggy
+      char commandArray[39];
+      String s = "140 1 3 57 8 75 8 73 16 0 131 0 141 1";
+      s.toCharArray(commandArray, 39);
+      sendPacket(commandArray);
+      delay(750);
+      Serial.write(128); // Start command
+    }
   } else if (cmd == "return_to_base") {
     DLOG("Returning to Base\n");
-    roombaState.cleaning = true;
+    roombaState.returning = true;
     roomba.dock();
   } else if (cmd == "send_status") {
     DLOG("Send status through MQTT\n");
@@ -398,6 +417,18 @@ bool parseRoombaStateFromStreamPacket(uint8_t *packet, int length, RoombaState *
       case Roomba::SensorBumpsAndWheelDrops: // 7
         i += 2;
         break;
+      case Roomba::SensorLeftEncoderCounts: //43
+        state->leftencodercounts = packet[i+1] * 256 + packet[i+2];
+        i += 3;
+        break;
+      case Roomba::SensorRightEncoderCounts: //44
+        state->rightencodercounts = packet[i+1] * 256 + packet[i+2];
+        i += 3;
+        break;
+      case Roomba::SensorStasis: //58
+        state->stasis = packet[i+1];
+        i += 2;
+        break;
       case 128: // Unknown
         i += 2;
         break;
@@ -421,28 +452,29 @@ void verboseLogPacket(uint8_t *packet, uint8_t length) {
 
 void readSensorPacket() {
   uint8_t packetLength;
-  bool received = roomba.pollSensors(roombaPacket, sizeof(roombaPacket), &packetLength, serialMessage);
-  DLOG(serialMessage);
+  bool received = roomba.pollSensors(roombaPacket, sizeof(roombaPacket), &packetLength);
   if (received) {
     RoombaState rs = {};
     bool parsed = parseRoombaStateFromStreamPacket(roombaPacket, packetLength, &rs);
     verboseLogPacket(roombaPacket, packetLength);
     if (parsed && rs.temp != 0) {
+      bool currentlyReturning = roombaState.returning;
       roombaState = rs;
-      VLOG("Got Packet of len=%d! OIMode:%d Distance:%dmm ChargingState:%d Voltage:%dmV Current:%dmA Charge:%dmAh Capacity:%dmAh\n", packetLength, roombaState.OIMode, roombaState.distance, roombaState.chargingState, roombaState.voltage, roombaState.current, roombaState.charge, roombaState.capacity);
+      roombaState.returning = currentlyReturning;
+      VLOG("Got Packet of len=%d! OIMode:%d Distance:%dmm ChargingState:%d Voltage:%dmV Current:%dmA Charge:%dmAh Capacity:%dmAh Stasis:%d\n", packetLength, roombaState.OIMode, roombaState.distance, roombaState.chargingState, roombaState.voltage, roombaState.current, roombaState.charge, roombaState.capacity, roombaState.stasis);
       //DLOG("Got Packet of len=%d! OIMode:%d Distance:%dmm ChargingState:%d Voltage:%dmV Current:%dmA Charge:%dmAh Capacity:%dmAh\n", packetLength, roombaState.OIMode, roombaState.distance, roombaState.chargingState, roombaState.voltage, roombaState.current, roombaState.charge, roombaState.capacity);
       //char pkg[180];
       //sprintf(pkg, "Got Packet of len=%d! Distance:%dmm ChargingState:%d Voltage:%dmV Current:%dmA Charge:%dmAh Capacity:%dmAh\n", packetLength, roombaState.distance, roombaState.chargingState, roombaState.voltage, roombaState.current, roombaState.charge, roombaState.capacity);
-      //mqttClient.publish(debugTopic,pkg);
       distanceSum += roombaState.distance;
       //roombaState.cleaning = false;
       //roombaState.docked = false;
-      if (roombaState.current < -400) {
+      if (roombaState.current < -400 && !roombaState.returning) {
         roombaState.cleaning = true;
         roombaState.docked = false;
       } else if (roombaState.current > -50) {
         roombaState.docked = true;
         roombaState.cleaning = false;
+        roombaState.returning = false;
       } else {
         roombaState.cleaning = false;
         roombaState.docked = false;
@@ -508,7 +540,7 @@ void reconnect() {
   DLOG("Attempting MQTT connection...\n");
   // Attempt to connect
   //if (mqttClient.connect(HOSTNAME, MQTT_USER, MQTT_PASSWORD)) {
-    if (mqttClient.connect(HOSTNAME,lwtTopic,0,true,lwtMessage)) {
+    if (mqttClient.connect(HOSTNAME, lwtTopic, 0, true, lwtMessage)) {
     DLOG("MQTT connected\n");
     mqttClient.subscribe(commandTopic);
     DLOG("MQTT command topic subscribed!\n");
@@ -553,6 +585,7 @@ void sendStatus() {
   root["batteryTemperature"] = roombaState.temp;
   root["chargingSourcesAvailable"] = roombaState.chargingSourcesAvailable;
   root["OIMode"] = roombaState.OIMode;
+  root["stasis"] = roombaState.stasis;
   String jsonStr;
   root.printTo(jsonStr);
   mqttClient.publish(statusTopic, jsonStr.c_str());
@@ -565,7 +598,11 @@ void sendStatusHA() {
   }
   StaticJsonBuffer<300> jsonBuffer;
   JsonObject& root = jsonBuffer.createObject();
-  if (roombaState.cleaning){
+  
+  if (roombaState.returning) {
+    root["state"] = "returning";
+  }
+  else if (roombaState.cleaning){
     root["state"] = "cleaning";
   }
   else if (roombaState.chargingSourcesAvailable == Roomba::ChargeAvailableDock){
@@ -589,7 +626,7 @@ void sleepIfNecessary() {
   if ((roombaState.voltage < 10800 && roombaState.voltage > 0) || ((int)(((float)roombaState.charge / (float)roombaState.capacity) * 100) < 15)) {
     // Fire off a quick message with our most recent state, if MQTT is connected
     DLOG("Battery voltage is low (%.1fV). Sleeping for 10 minutes\n", (float)roombaState.voltage / 1000);
-    if (roombaState.cleaning == true){
+    if (roombaState.cleaning || roombaState.returning){
       roomba.cover();
     }
     if (mqttClient.connected()) { 
@@ -605,6 +642,7 @@ void sleepIfNecessary() {
       root.printTo(jsonStr);
       mqttClient.publish(statusTopic, jsonStr.c_str(), true);
       delay(200);
+      stop_wakeup = true; // added bool to allow Roomba to enter power_saving mode - work in progress
       //ESP.deepSleep(600e6); - disabled due to not connected GPIO16 to RST
     }
     //delay(200);
@@ -641,7 +679,7 @@ void loop() {
   if (now - lastWakeupTime > 50000) {
     DLOG("Wakeup Roomba now\n");
     lastWakeupTime = now;
-    if (!roombaState.cleaning) {
+    if (!roombaState.cleaning && !stop_wakeup && !roombaState.returning) {
       if (roombaState.docked) {
         //wakeOnDock(); - CB
       } else {
@@ -666,9 +704,12 @@ void loop() {
     // String uptime = updays + "T" + uphours + ":" + upminutes + ":" + upseconds;
     char uptime[15];
     sprintf(uptime, "%dT%02d:%02d:%02d", updays, uphours, upminutes, upseconds);
+    root["UPTIME"] = uptime;
+    root["Hostname"] = WiFi.hostname();
+    root["IPAddress"] = wifiClient.localIP().toString();
     root["RSSI"] = WiFi.RSSI();
     root["SSID"] = WiFi.SSID();
-    root["UPTIME"] = uptime;
+    root["COMPILE_DATE"] = __DATE__ " " __TIME__;
     String jsonStr;
     root.printTo(jsonStr);
     mqttClient.publish(infoTopic, jsonStr.c_str());
