@@ -7,8 +7,6 @@
 #define ADC_VOLTAGE_DIVIDER 44.551316985
 //#define ENABLE_ADC_SLEEP
 
-#define MQTT_SERVER "192.168.1.22"
-#define MQTT_USER "homeassistant"
 #define MQTT_COMMAND_TOPIC "vacuum/command"
 #define MQTT_STATE_TOPIC "vacuum/STATUS"
 #define MQTT_STATE_HA_TOPIC "vacuum/STATUSHA"
